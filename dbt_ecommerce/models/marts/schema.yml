@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: fct_events
+    description: "Incremental fact table for individual e-commerce events (Gold/Silver boundary)."
+    columns:
+      - name: event_id
+        description: "Surrogate key."
+        tests:
+          - unique
+          - not_null
+      - name: event_timestamp
+        tests:
+          - not_null
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: ["view", "cart", "remove_from_cart", "purchase"]
+      - name: user_id
+        tests:
+          - not_null
+      - name: computed_session_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('mart_ml_features')
+              field: computed_session_id
+
+  - name: mart_ml_features
+    description: "Session-level Gold feature store consumed by Spark MLlib training."
+    columns:
+      - name: computed_session_id
+        tests:
+          - unique
+          - not_null
+      - name: is_purchased
+        tests:
+          - not_null
+      - name: session_duration_sec
+        description: "Must be >= 0. Negative values indicate a data quality issue."
+        # TODO [Feature Store]: Add custom test assert_valid_session_duration

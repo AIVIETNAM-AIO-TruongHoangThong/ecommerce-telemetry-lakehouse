@@ -1,0 +1,33 @@
+ml:
+  # Feature columns fed into VectorAssembler
+  feature_columns:
+    - "session_duration_sec"
+    - "total_events"
+    - "view_count"
+    - "cart_count"
+    - "remove_count"
+    - "distinct_products"
+    - "distinct_categories"
+    - "avg_price_viewed"
+    - "max_price_viewed"
+
+  label_column: "is_purchased"
+
+  # Train / validation split (October data)
+  train_ratio: 0.8
+  val_ratio: 0.2
+  random_seed: 42
+
+  # GBTClassifier hyperparameters
+  gbt:
+    max_iter: 20
+    max_depth: 5
+
+  # RandomForestClassifier hyperparameters (alternative)
+  random_forest:
+    num_trees: 100
+    max_depth: 5
+
+  # Paths
+  model_output: "models/gbt_conversion/"
+  metrics_output: "data/metrics/oot_evaluation.json"

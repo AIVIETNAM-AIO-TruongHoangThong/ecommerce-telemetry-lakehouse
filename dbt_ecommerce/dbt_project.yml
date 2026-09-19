@@ -1,0 +1,30 @@
+name: dbt_ecommerce
+version: "1.0.0"
+config-version: 2
+
+profile: ecommerce_snowflake
+
+# -- Model directories --------------------------------------------------------
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+# -- Materialisation defaults by layer ----------------------------------------
+models:
+  dbt_ecommerce:
+    staging:
+      +materialized: view
+      +schema: SILVER
+
+    intermediate:
+      +materialized: ephemeral
+
+    marts:
+      +materialized: incremental
+      +schema: GOLD
+      +on_schema_change: append_new_columns
+
+# -- Variable defaults ---------------------------------------------------------
+vars:
+  start_date: "2019-10-01"
+  oot_cutoff_date: "2020-02-01"   # Pre-pandemic training cutoff

@@ -1,0 +1,25 @@
+[project]
+name = "ecommerce-behavior-multi-category"
+version = "0.1.0"
+description = "End-to-End Production E-Commerce Telemetry Pipeline, Snowflake Lakehouse & Distributed ML Conversion Engine"
+readme = "README.md"
+authors = [
+    { name = "Thong Truong", email = "thongtr.dev@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "pyspark==3.4.1",
+    "pyyaml",
+    "snowflake-connector-python",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"

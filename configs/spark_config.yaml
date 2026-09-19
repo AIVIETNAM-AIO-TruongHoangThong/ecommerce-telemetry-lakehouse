@@ -1,0 +1,13 @@
+spark:
+  master: "spark://spark-master:7077"
+  app_name: "ecommerce-telemetry-pipeline"
+  driver_memory: "2g"
+  executor_memory: "4g"
+  executor_cores: 4
+  # Extra JARs needed for Snowflake integration
+  extra_jars:
+    - "/opt/spark/jars/spark-snowflake_2.12-2.12.0-spark_3.4.jar"
+    - "/opt/spark/jars/snowflake-jdbc-3.13.33.jar"
+    - "/opt/spark/jars/hadoop-aws-3.3.4.jar"
+    - "/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar"
+  log_level: "WARN"
