@@ -1,24 +1,26 @@
 [project]
-name = "ecommerce-behavior-multi-category"
+name = "ecommerce-telemetry-lakehouse"
 version = "0.1.0"
-description = "End-to-End Production E-Commerce Telemetry Pipeline, Snowflake Lakehouse & Distributed ML Conversion Engine"
+description = "Production E-Commerce Telemetry Ingestion Engine -> Apache Iceberg Lakehouse"
 readme = "README.md"
 authors = [
     { name = "Thong Truong", email = "thongtr.dev@gmail.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11, <3.13"
 dependencies = [
-    "pyspark==3.4.1",
-    "pyyaml",
-    "snowflake-connector-python",
+    "pyspark==3.5.1",
+    "pyarrow>=15.0.0",
+    "click>=8.1.7",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-cov",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
 ]
 
+[tool.uv]
+package = false
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]

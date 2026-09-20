@@ -1,14 +1,22 @@
-"""
-ingestion/schemas.py
---------------------
-TODO: Define the explicit StructType schema for the REES46 raw event CSV.
+from pyspark.sql.types import (
+    FloatType,
+    IntegerType,
+    StringType,
+    StructField,
+    StructType,
+)
 
-Columns:
-  event_time, event_type, product_id, category_id,
-  category_code, brand, price, user_id, user_session
-"""
-
-from pyspark.sql.types import StructType
-
-# TODO: Define RAW_EVENT_SCHEMA using StructType / StructField
-RAW_EVENT_SCHEMA: StructType = None  # replace with your definition
+RAW_EVENT_SCHEMA = StructType(
+    [
+        StructField("event_time", StringType(), nullable=False),
+        StructField("event_type", StringType(), nullable=False),
+        StructField("product_id", IntegerType(), nullable=False),
+        StructField("category_id", StringType(), nullable=True),
+        StructField("category_code", StringType(), nullable=True),
+        StructField("brand", StringType(), nullable=True),
+        StructField("price", FloatType(), nullable=True),
+        StructField("user_id", IntegerType(), nullable=False),
+        StructField("user_session", StringType(), nullable=True),
+        StructField("_corrupt_record", StringType(), nullable=True),
+    ]
+)
