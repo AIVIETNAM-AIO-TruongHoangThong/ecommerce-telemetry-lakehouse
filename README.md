@@ -1,69 +1,101 @@
-# End-to-End E-Commerce Telemetry Lakehouse & ML Conversion Platform
+# End-to-End E-Commerce Telemetry Lakehouse & Distributed ML Engine
 
-A fully containerized data engineering and machine learning platform built with PySpark, Snowflake (Medallion Architecture), dbt Core, and Spark MLlib.
+A production-grade, GitOps-ready Open Data Lakehouse and Distributed Machine Learning platform built with **PySpark 3.5.1**, **Apache Iceberg**, **MinIO (S3A)**, **Trino**, **dbt**, and **Spark MLlib**, deployed on **Dokploy** (Docker PaaS on VPS).
 
 ---
 
 ## 1. Architecture Overview
 
-```
-                      +----------------------------------------------------+
-                      |    RAW DATA: REES46 CSV Logs (2019-Oct - 2020-Apr) |
-                      |                 Mounted via Docker                 |
-                      +-------------------------+--------------------------+
-                                                |
-   +============================================v============================================+
-   | STAGE 1: INGESTION ENGINE (PySpark Standalone Cluster)                                   |
-   | - Explicit schema enforcement via StructType (avoid inferSchema).                       |
-   | - PERMISSIVE mode: Quarantine corrupt/null records into Dead Letter Queue (DLQ).        |
-   | - I/O optimization: Persist Snappy Parquet partitioned by (year/month/day).            |
-   +============================================+============================================+
-                                                |
-   +============================================v============================================+
-   | STAGE 2: PROCESSING & DISTRIBUTED SESSIONIZATION                                        |
-   | - Window functions: lag(event_timestamp), unix_timestamp.                               |
-   | - Session inactivity timeout threshold: 1800 seconds (30 minutes).                      |
-   | - Assign computed_session_id = hash(user_id || session_index).                          |
-   +============================================+============================================+
-                                                |
-   +============================================v============================================+
-   | STAGE 3: MEDALLION DATA WAREHOUSE & ANALYTICS (Snowflake + dbt)                         |
-   | - Snowflake Connector for Spark + Internal Staging (SPARK_STAGE).                       |
-   | - Bronze: Raw Parquet data loaded into Snowflake staging tables.                        |
-   | - Silver: Star Schema (fact_events, fact_sessions, dim_products, dim_users).            |
-   | - Gold (Feature Store): Session-level and user-level aggregated metrics via dbt.        |
-   +============================================+============================================+
-                                                |
-   +============================================v============================================+
-   | STAGE 4: DISTRIBUTED ML PIPELINE (Spark MLlib)                                          |
-   | - Preprocessing: VectorAssembler -> StandardScaler.                                     |
-   | - Distributed Training: GBTClassifier on training split.                                |
-   | - Out-of-Time Serving: Inference on test split; output ROC-AUC, PR-AUC, Feature Imp.    |
-   +=========================================================================================+
+The system ingests and processes high-throughput e-commerce clickstream telemetry (~410M+ events, 16.45 GB compressed across 7 months, Oct 2019 – Apr 2020) through an ACID-compliant Medallion Lakehouse architecture, training distributed ML models for real-time session purchase conversion scoring.
+
+```mermaid
+flowchart TD
+    subgraph Stage0["0. Remote CDN (Data Source)"]
+        CSV["REES46 eCommerce Telemetry (.csv.gz)<br/>7 Months (Oct 2019 – Apr 2020)<br/>410M+ Events | 16.45 GB Compressed"]
+    end
+
+    subgraph Stage1["1. Bronze Layer: Raw Ingestion"]
+        Ingest["PySpark Ingestion (src/ingestion/ingest_batch.py)<br/>• Streaming download (Zero Host Disk)<br/>• Schema validation"]
+        DLQ["Dead Letter Queue (DLQ)<br/>s3a://ecommerce-lakehouse/dlq/"]
+        Bronze[("Iceberg Bronze Table<br/>lakehouse.bronze_events")]
+        Ingest --> Bronze
+        Ingest -.->|Malformed Records| DLQ
+    end
+
+    subgraph Stage2["2. Silver Layer: Sessionization"]
+        Sess["PySpark Sessionizer (src/processing/transform_silver.py)<br/>• Deduplication & event ordering<br/>• Session windowing (30-min timeout)"]
+        Silver[("Iceberg Silver Table<br/>lakehouse.silver_events")]
+        Sess --> Silver
+    end
+
+    subgraph Stage3["3. Gold Layer: Dimensional Modeling"]
+        DBT["dbt Core + dbt-trino<br/>• Dimensional modeling & feature aggregation<br/>• Schema tests & data quality assertions"]
+        Gold[("Iceberg Gold Table<br/>lakehouse.gold_session_features")]
+        DBT --> Gold
+    end
+
+    subgraph Stage4["4. Machine Learning: Conversion Engine"]
+        Train["Spark MLlib Training (src/ml/train.py)<br/>VectorAssembler + GBTClassifier"]
+        ModelStore["MinIO Model Registry<br/>s3a://ecommerce-lakehouse/models/"]
+        OOT["OOT Evaluation (src/ml/evaluate_oot.py)<br/>PR-AUC & ROC-AUC Validation"]
+        Predictions[("Iceberg Predictions Table<br/>lakehouse.gold_session_predictions")]
+        
+        Train --> ModelStore
+        ModelStore --> OOT
+        OOT --> Predictions
+    end
+
+    subgraph Stage5["5. Serving & Analytics"]
+        Trino["Trino Distributed SQL Engine<br/>Sub-second ad-hoc queries"]
+        BI["BI Dashboards & Funnels<br/>Metabase / Superset / Trino CLI"]
+        Trino --> BI
+    end
+
+    %% Sequential Pipeline Flows
+    CSV --> Ingest
+    Bronze --> Sess
+    Silver --> DBT
+    Gold --> Train
+    Gold --> Trino
+    Predictions --> Trino
 ```
 
 ---
 
-## 2. Repository Layout
+## 2. Medallion Lakehouse Flow
 
-```
+| Layer | Engine | Format / Storage | Description |
+| :--- | :--- | :--- | :--- |
+| **Bronze** | PySpark 3.5.1 | Apache Iceberg on MinIO | Raw clickstream events ingested directly from remote streams. Enforces `RAW_EVENT_SCHEMA`, catches malformed rows into DLQ, and partitions by `days(event_timestamp)`. |
+| **Silver** | PySpark 3.5.1 | Apache Iceberg on MinIO | Cleaned, deduplicated, and sessionized events. Defines user session windows, event order sequences, and removes crawler/bot noise. |
+| **Gold** | dbt + Trino | Apache Iceberg on MinIO | Business-level aggregations and session-level feature store (`user_session`, `view_count`, `cart_count`, `duration_seconds`, `is_purchased`). |
+| **ML Scoring** | Spark MLlib | Apache Iceberg on MinIO | Distributed `GBTClassifier` scoring session purchase conversion probabilities (`gold_session_predictions`), queried instantly by Trino for marketing funnels. |
+
+---
+
+## 3. Repository Layout
+
+```text
 .
 |-- .env.example
 |-- .gitignore
+|-- .python-version
 |-- Makefile
 |-- README.md
 |-- pyproject.toml
+|-- uv.lock
 |-- requirements.txt
 |-- docker-compose.yml
 |-- docker/
 |   |-- spark/
-|   |   |-- Dockerfile
-|   |   `-- jars/
+|   |   `-- Dockerfile
+|   |-- trino/
+|   |   `-- Dockerfile
 |   `-- app/
 |       `-- Dockerfile
 |-- configs/
 |   |-- spark_config.yaml
-|   |-- snowflake_config.yaml
+|   |-- lakehouse_config.yaml
 |   `-- ml_config.yaml
 |-- terraform/
 |   |-- main.tf
@@ -79,87 +111,62 @@ A fully containerized data engineering and machine learning platform built with 
 |   |   |-- intermediate/
 |   |   `-- marts/
 |   `-- tests/
-|-- data/
-|   |-- raw/
-|   |-- bronze/
-|   |-- silver/
-|   |-- dlq/
-|   |-- gold_features/
-|   |-- metrics/
-|   `-- artifacts/
-|-- sql/
-|   |-- snowflake_setup.sql
-|   |-- silver_star_schema.sql
-|   `-- gold_feature_store.sql
 |-- src/
-|   `-- ecommerce_behavior_multi_category/
-|       |-- common/
-|       |   |-- logger.py
-|       |   `-- spark_session.py
-|       |-- ingestion/
-|       |   |-- schemas.py
-|       |   `-- ingest_monthly_batch.py
-|       |-- processing/
-|       |   |-- sessionizer.py
-|       |   `-- transform_silver.py
-|       |-- warehouse/
-|       |   `-- snowflake_loader.py
-|       `-- ml/
-|           |-- feature_engineering.py
-|           |-- train.py
-|           `-- evaluate_oot.py
+|   |-- __init__.py
+|   |-- common/
+|   |   |-- __init__.py
+|   |   |-- logger.py
+|   |   `-- spark_session.py
+|   |-- ingestion/
+|   |   |-- __init__.py
+|   |   |-- schemas.py
+|   |   `-- ingest_batch.py
+|   |-- processing/
+|   |   |-- __init__.py
+|   |   |-- sessionizer.py
+|   |   `-- transform_silver.py
+|   `-- ml/
+|       |-- __init__.py
+|       |-- feature_engineering.py
+|       |-- train.py
+|       `-- evaluate_oot.py
 `-- tests/
     |-- conftest.py
     |-- test_schemas.py
-    `-- test_sessionizer.py
+    |-- test_sessionizer.py
+    `-- test_ml_pipeline.py
 ```
 
 ---
 
-## 3. Quickstart & CLI Commands
+## 4. Ingestion Engine CLI Specifications
 
-### Environment Setup
+The batch ingestion engine (`src/ingestion/ingest_batch.py`) streams remote files directly to ephemeral scratch space, routes malformed records to MinIO DLQ, and commits clean records into an Iceberg table partitioned by day (`days(event_timestamp)`).
+
+### CLI Parameters:
+* `--url`: Remote URL(s) to `.csv.gz` files (repeatable flag: pass multiple times).
+* `--table-name`: Target Iceberg table (default: `lakehouse.bronze_events`).
+* `--warehouse-path`: MinIO S3A destination (default: `s3a://ecommerce-lakehouse/iceberg`).
+* `--dlq-dir`: S3A path for dead letters (default: `s3a://ecommerce-lakehouse/dlq`).
+
+### Local Execution (via `uv`):
 ```bash
-cp .env.example .env
-# Edit .env with your Snowflake credentials and settings
+uv run python -m src.ingestion.ingest_batch \
+  --url https://example.com/data/2019-Oct.csv.gz \
+  --url https://example.com/data/2019-Nov.csv.gz \
+  --table-name lakehouse.bronze_events \
+  --warehouse-path s3a://ecommerce-lakehouse/iceberg \
+  --dlq-dir s3a://ecommerce-lakehouse/dlq
 ```
 
-### Docker Infrastructure
+### Docker Execution (Dokploy / Compose):
 ```bash
-make build   # Build Docker images
-make up      # Start Spark cluster (master, worker, job-runner)
-make down    # Stop containers
-```
-
-### Infrastructure as Code (Terraform)
-```bash
-make tf-init
-make tf-plan
-make tf-apply
-```
-
-### Data Pipeline Execution
-```bash
-# Stage 1: Batch Ingestion (per month)
-make ingest MONTH=2019-Oct
-
-# Stage 2: Sessionization
-make sessionize MONTH=2019-Oct
-
-# Stage 3: Load to Snowflake
-make load-snowflake MONTH=2019-Oct
-
-# Stage 4: dbt Transformations & Testing
-make dbt-deps
-make dbt-run
-make dbt-test
-
-# Stage 5: ML Training & Out-of-Time Evaluation
-make train-ml
-make eval-oot
-```
-
-### Testing
-```bash
-make test
+docker run --rm \
+  --network lakehouse-net \
+  -e MINIO_ENDPOINT=http://minio:9000 \
+  -e MINIO_ACCESS_KEY=minioadmin \
+  -e MINIO_SECRET_KEY=minioadmin \
+  ecommerce-ingestion:latest \
+  --url https://example.com/data/2019-Oct.csv.gz \
+  --table-name lakehouse.bronze_events
 ```
