@@ -2,7 +2,7 @@ name: dbt_ecommerce
 version: "1.0.0"
 config-version: 2
 
-profile: ecommerce_snowflake
+profile: ecommerce_trino
 
 # -- Model directories --------------------------------------------------------
 model-paths: ["models"]
@@ -14,15 +14,14 @@ models:
   dbt_ecommerce:
     staging:
       +materialized: view
-      +schema: SILVER
+      +schema: lakehouse
 
     intermediate:
       +materialized: ephemeral
 
     marts:
-      +materialized: incremental
-      +schema: GOLD
-      +on_schema_change: append_new_columns
+      +materialized: table
+      +schema: lakehouse
 
 # -- Variable defaults ---------------------------------------------------------
 vars:

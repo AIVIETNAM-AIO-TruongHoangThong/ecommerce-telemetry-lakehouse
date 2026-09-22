@@ -19,7 +19,6 @@ services:
       - ./data:/opt/spark/data
       - ./src:/opt/spark/src
       - ./configs:/opt/spark/configs
-      - ./sql:/opt/spark/sql
 
   spark-worker:
     build:
@@ -37,7 +36,6 @@ services:
       - ./data:/opt/spark/data
       - ./src:/opt/spark/src
       - ./configs:/opt/spark/configs
-      - ./sql:/opt/spark/sql
 
   job-runner:
     build:

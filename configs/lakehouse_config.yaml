@@ -1,0 +1,11 @@
+lakehouse:
+  storage:
+    endpoint: "http://minio:9000"
+    access_key: "minioadmin"
+    secret_key: "minioadmin"
+    bucket: "ecommerce-lakehouse"
+    warehouse_path: "s3a://ecommerce-lakehouse/iceberg"
+    dlq_path: "s3a://ecommerce-lakehouse/dlq"
+  catalog:
+    name: "lakehouse"
+    type: "hadoop"

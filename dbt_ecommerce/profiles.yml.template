@@ -1,31 +1,29 @@
 # profiles.yml.template
 # ---------------------
 # Copy this file to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR).
-# Fill in your Snowflake credentials - never commit real credentials.
+# Configured for Trino querying Apache Iceberg catalog on MinIO.
 
-ecommerce_snowflake:
+ecommerce_trino:
   target: dev
   outputs:
     dev:
-      type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      role: "{{ env_var('SNOWFLAKE_ROLE', 'SYSADMIN') }}"
-      database: ECOMMERCE_DB
-      warehouse: COMPUTE_WH
-      schema: SILVER          # default schema; overridden per model layer
+      type: trino
+      method: none
+      user: "{{ env_var('TRINO_USER', 'admin') }}"
+      password: "{{ env_var('TRINO_PASSWORD', '') }}"
+      host: "{{ env_var('TRINO_HOST', 'localhost') }}"
+      port: "{{ env_var('TRINO_PORT', 8080) | int }}"
+      database: iceberg
+      schema: lakehouse
       threads: 4
-      client_session_keep_alive: false
 
     prod:
-      type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      role: SYSADMIN
-      database: ECOMMERCE_DB
-      warehouse: COMPUTE_WH
-      schema: SILVER
+      type: trino
+      method: none
+      user: "{{ env_var('TRINO_USER', 'admin') }}"
+      password: "{{ env_var('TRINO_PASSWORD', '') }}"
+      host: "{{ env_var('TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('TRINO_PORT', 8080) | int }}"
+      database: iceberg
+      schema: lakehouse
       threads: 8
-      client_session_keep_alive: false
