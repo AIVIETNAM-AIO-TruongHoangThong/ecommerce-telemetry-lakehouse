@@ -30,12 +30,12 @@ def spark():
 @pytest.fixture()
 def sample_raw_events(spark):
     """
-    Return a small DataFrame mimicking raw REES46 event records.
+       Return a small DataFrame mimicking raw REES46 event records.
 
-    TODO [Unit Testing]:
-    Build a DataFrame from a hardcoded list of Row objects covering:
- - At least 2 users.
- - Events spanning multiple sessions (gap > 1800 s between some events).
- - At least one purchase event and one corrupt record (null user_id).
+       TODO [Unit Testing]:
+       Build a DataFrame from a hardcoded list of Row objects covering:
+    - At least 2 users.
+    - Events spanning multiple sessions (gap > 1800 s between some events).
+    - At least one purchase event and one corrupt record (null user_id).
     """
     raise NotImplementedError("Implement sample_raw_events fixture.")

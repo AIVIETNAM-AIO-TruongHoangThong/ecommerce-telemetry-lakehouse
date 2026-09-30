@@ -1,5 +1,23 @@
 import os
+import sys
 from pyspark.sql import SparkSession
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
+
+# Ensure Spark workers use the same Python executable as the active driver environment
+os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+
+# Prevent external SPARK_HOME from conflicting with PySpark 3.5.1 bundled jars
+spark_home = os.getenv("SPARK_HOME", "")
+if spark_home and not spark_home.startswith(sys.prefix):
+    os.environ.pop("SPARK_HOME", None)
 
 
 def get_spark_session(
@@ -10,6 +28,7 @@ def get_spark_session(
     """
     Build and return a SparkSession with Apache Iceberg and MinIO S3A support.
     """
+
     # Allow environment variable overrides
     endpoint = os.getenv("MINIO_ENDPOINT", minio_endpoint)
     access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
@@ -22,9 +41,17 @@ def get_spark_session(
         "com.amazonaws:aws-java-sdk-bundle:1.12.262",
     ]
 
+    master_url = os.getenv("SPARK_MASTER_URL", "local[4]")
+
+    ssl_enabled = (
+        "true"
+        if endpoint.startswith("https://")
+        else os.getenv("MINIO_SSL_ENABLED", "false")
+    )
+
     builder = (
         SparkSession.builder.appName(app_name)
-        .master("local[2]")
+        .master(master_url)
         # JVM Driver Memory & Garbage Collection Tuning
         .config("spark.driver.memory", "4g")
         .config("spark.memory.fraction", "0.6")
@@ -44,7 +71,7 @@ def get_spark_session(
         .config("spark.hadoop.fs.s3a.access.key", access_key)
         .config("spark.hadoop.fs.s3a.secret.key", secret_key)
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", ssl_enabled)
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config(
             "spark.hadoop.fs.s3a.aws.credentials.provider",
