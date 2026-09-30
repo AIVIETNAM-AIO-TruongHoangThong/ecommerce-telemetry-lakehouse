@@ -10,14 +10,18 @@ The system ingests and processes high-throughput e-commerce clickstream telemetr
 
 ```mermaid
 flowchart TD
-    subgraph Stage0["0. Remote CDN (Data Source)"]
-        CSV["REES46 eCommerce Telemetry (.csv.gz)<br/>7 Months (Oct 2019 – Apr 2020)<br/>410M+ Events | 16.45 GB Compressed"]
+    subgraph Stage0["0. Fast Parallel Acquisition (Accelerated Downloader)"]
+        CDN["REES46 eCommerce Telemetry (.csv.gz)<br/>7 Months (Oct 2019 – Apr 2020)<br/>410M+ Events | 16.45 GB Compressed"]
+        DL["scripts/fast_download.py<br/>• 16 Parallel HTTP Range Streams/file<br/>• 30x Throughput Boost (~15 MB/s)"]
+        Scratch["Local Scratch Disk (NVMe SSD)<br/>./data/scratch/*.csv.gz"]
+        CDN --> DL --> Scratch
     end
 
     subgraph Stage1["1. Bronze Layer: Raw Ingestion"]
-        Ingest["PySpark Ingestion (src/ingestion/ingest_batch.py)<br/>• Streaming download (Zero Host Disk)<br/>• Schema validation"]
+        Ingest["PySpark Ingestion (src/ingestion/ingest_batch.py)<br/>• Schema validation (PERMISSIVE mode)<br/>• 4 CPU Cores / 8 Tasks Parallelism"]
         DLQ["Dead Letter Queue (DLQ)<br/>s3a://ecommerce-lakehouse/dlq/"]
-        Bronze[("Iceberg Bronze Table<br/>lakehouse.bronze_events")]
+        Bronze[("Iceberg Bronze Table<br/>lakehouse.bronze_events<br/>Partitioned by days(event_timestamp)")]
+        Scratch --> Ingest
         Ingest --> Bronze
         Ingest -.->|Malformed Records| DLQ
     end
@@ -25,13 +29,13 @@ flowchart TD
     subgraph Stage2["2. Silver Layer: Sessionization"]
         Sess["PySpark Sessionizer (src/processing/transform_silver.py)<br/>• Deduplication & event ordering<br/>• Session windowing (30-min timeout)"]
         Silver[("Iceberg Silver Table<br/>lakehouse.silver_events")]
-        Sess --> Silver
+        Bronze --> Sess --> Silver
     end
 
     subgraph Stage3["3. Gold Layer: Dimensional Modeling"]
         DBT["dbt Core + dbt-trino<br/>• Dimensional modeling & feature aggregation<br/>• Schema tests & data quality assertions"]
         Gold[("Iceberg Gold Table<br/>lakehouse.gold_session_features")]
-        DBT --> Gold
+        Silver --> DBT --> Gold
     end
 
     subgraph Stage4["4. Machine Learning: Conversion Engine"]
@@ -40,24 +44,17 @@ flowchart TD
         OOT["OOT Evaluation (src/ml/evaluate_oot.py)<br/>PR-AUC & ROC-AUC Validation"]
         Predictions[("Iceberg Predictions Table<br/>lakehouse.gold_session_predictions")]
         
-        Train --> ModelStore
-        ModelStore --> OOT
-        OOT --> Predictions
+        Gold --> Train --> ModelStore
+        ModelStore --> OOT --> Predictions
     end
 
     subgraph Stage5["5. Serving & Analytics"]
         Trino["Trino Distributed SQL Engine<br/>Sub-second ad-hoc queries"]
         BI["BI Dashboards & Funnels<br/>Metabase / Superset / Trino CLI"]
+        Gold --> Trino
+        Predictions --> Trino
         Trino --> BI
     end
-
-    %% Sequential Pipeline Flows
-    CSV --> Ingest
-    Bronze --> Sess
-    Silver --> DBT
-    Gold --> Train
-    Gold --> Trino
-    Predictions --> Trino
 ```
 
 ---
@@ -66,10 +63,11 @@ flowchart TD
 
 | Layer | Engine | Format / Storage | Description |
 | :--- | :--- | :--- | :--- |
-| **Bronze** | PySpark 3.5.1 | Apache Iceberg on MinIO | Raw clickstream events ingested directly from remote streams. Enforces `RAW_EVENT_SCHEMA`, catches malformed rows into DLQ, and partitions by `days(event_timestamp)`. |
-| **Silver** | PySpark 3.5.1 | Apache Iceberg on MinIO | Cleaned, deduplicated, and sessionized events. Defines user session windows, event order sequences, and removes crawler/bot noise. |
-| **Gold** | dbt + Trino | Apache Iceberg on MinIO | Business-level aggregations and session-level feature store (`user_session`, `view_count`, `cart_count`, `duration_seconds`, `is_purchased`). |
-| **ML Scoring** | Spark MLlib | Apache Iceberg on MinIO | Distributed `GBTClassifier` scoring session purchase conversion probabilities (`gold_session_predictions`), queried instantly by Trino for marketing funnels. |
+| **Ingestion Engine** | Python / Click | Local NVMe Scratch | High-speed multi-threaded range downloader (`scripts/fast_download.py`) splitting files into 16 concurrent chunk streams to bypass server throttling. |
+| **Bronze** | PySpark 3.5.1 | Apache Iceberg v2 on MinIO | Schema-enforced raw clickstream events. Routes corrupt rows / negative prices / null user IDs into DLQ Snappy Parquet, partitioned by `days(event_timestamp)`. |
+| **Silver** | PySpark 3.5.1 | Apache Iceberg v2 on MinIO | Cleaned, deduplicated, and sessionized events. Computes 30-minute inactivity session boundaries and event sequence numbers. |
+| **Gold** | dbt + Trino | Apache Iceberg v2 on MinIO | Dimensional marts & session feature store (`user_session`, `view_count`, `cart_count`, `duration_seconds`, `is_purchased`). |
+| **ML Scoring** | Spark MLlib | Apache Iceberg v2 on MinIO | Distributed `GBTClassifier` scoring session purchase conversion probabilities (`gold_session_predictions`), queried directly by Trino. |
 
 ---
 
@@ -77,15 +75,18 @@ flowchart TD
 
 ```text
 .
-|-- .env.example
-|-- .gitignore
-|-- .python-version
-|-- Makefile
-|-- README.md
-|-- pyproject.toml
-|-- uv.lock
-|-- requirements.txt
-|-- docker-compose.yml
+|-- .env.example                # Lakehouse & MinIO environment template
+|-- .gitignore                  # Git ignore rules (protects .env and data/)
+|-- .python-version             # Python runtime specification
+|-- Makefile                    # Automation & pipeline orchestration targets
+|-- README.md                   # System documentation & architecture
+|-- pyproject.toml              # Project dependencies & tool configurations
+|-- uv.lock                     # Lockfile for deterministic environments
+|-- requirements.txt            # Python requirements
+|-- docker-compose.yml          # Containerized local Spark & App runner
+|-- scripts/
+|   |-- __init__.py
+|   `-- fast_download.py        # 16-thread accelerated HTTP Range downloader
 |-- docker/
 |   |-- spark/
 |   |   `-- Dockerfile
@@ -97,11 +98,6 @@ flowchart TD
 |   |-- spark_config.yaml
 |   |-- lakehouse_config.yaml
 |   `-- ml_config.yaml
-|-- terraform/
-|   |-- main.tf
-|   |-- variables.tf
-|   |-- outputs.tf
-|   `-- providers.tf
 |-- dbt_ecommerce/
 |   |-- dbt_project.yml
 |   |-- packages.yml
@@ -132,6 +128,7 @@ flowchart TD
 |       `-- evaluate_oot.py
 `-- tests/
     |-- conftest.py
+    |-- test_fast_download.py
     |-- test_schemas.py
     |-- test_sessionizer.py
     `-- test_ml_pipeline.py
@@ -139,34 +136,56 @@ flowchart TD
 
 ---
 
-## 4. Ingestion Engine CLI Specifications
+## 4. Ingestion & Download CLI Specifications
 
-The batch ingestion engine (`src/ingestion/ingest_batch.py`) streams remote files directly to ephemeral scratch space, routes malformed records to MinIO DLQ, and commits clean records into an Iceberg table partitioned by day (`days(event_timestamp)`).
+### A. Accelerated Dataset Acquisition (`scripts/fast_download.py`)
+Bypasses remote single-stream bandwidth throttling using 16 concurrent HTTP Range chunk workers per file with real-time ETA and transfer speed reporting.
 
-### CLI Parameters:
-* `--url`: Remote URL(s) to `.csv.gz` files (repeatable flag: pass multiple times).
-* `--table-name`: Target Iceberg table (default: `lakehouse.bronze_events`).
-* `--warehouse-path`: MinIO S3A destination (default: `s3a://ecommerce-lakehouse/iceberg`).
-* `--dlq-dir`: S3A path for dead letters (default: `s3a://ecommerce-lakehouse/dlq`).
-
-### Local Execution (via `uv`):
 ```bash
+# Download all 7 months (Oct 2019 – Apr 2020)
+uv run python scripts/fast_download.py --all --output-dir ./data/scratch
+
+# Or download the 5 remaining months (Dec 2019 – Apr 2020)
+uv run python scripts/fast_download.py --all-remainders --output-dir ./data/scratch
+
+# Or download a specific month with custom thread count
+uv run python scripts/fast_download.py --url https://data.rees46.com/datasets/marketplace/2019-Dec.csv.gz --threads 16
+```
+
+### B. Batch Ingestion Engine (`src/ingestion/ingest_batch.py`)
+Reads downloaded `.csv.gz` from local scratch (or remote streams), applies `RAW_EVENT_SCHEMA`, quarantines corrupt rows to MinIO DLQ, and commits clean data to Apache Iceberg `lakehouse.bronze_events` partitioned by day.
+
+```bash
+# Ingest downloaded local file into Iceberg Bronze
 uv run python -m src.ingestion.ingest_batch \
-  --url https://example.com/data/2019-Oct.csv.gz \
-  --url https://example.com/data/2019-Nov.csv.gz \
+  --source ./data/scratch/2019-Dec.csv.gz \
   --table-name lakehouse.bronze_events \
   --warehouse-path s3a://ecommerce-lakehouse/iceberg \
   --dlq-dir s3a://ecommerce-lakehouse/dlq
 ```
 
-### Docker Execution (Dokploy / Compose):
+### C. Makefile Orchestration
 ```bash
-docker run --rm \
-  --network lakehouse-net \
-  -e MINIO_ENDPOINT=http://minio:9000 \
-  -e MINIO_ACCESS_KEY=minioadmin \
-  -e MINIO_SECRET_KEY=minioadmin \
-  ecommerce-ingestion:latest \
-  --url https://example.com/data/2019-Oct.csv.gz \
-  --table-name lakehouse.bronze_events
+# Download remainder datasets
+make download-remainders
+
+# Ingest single month
+make ingest MONTH=2019-Dec
+
+# Ingest all 7 months sequentially
+make ingest-all
+
+# Run Silver sessionization
+make sessionize
+
+# Run dbt transformations & tests
+make dbt-run
+make dbt-test
+
+# Train ML conversion model & evaluate OOT
+make train-ml
+make eval-oot
+
+# Execute full end-to-end pipeline
+make pipeline
 ```

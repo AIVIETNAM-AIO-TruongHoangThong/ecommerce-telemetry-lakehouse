@@ -51,7 +51,9 @@ def evaluate(predictions_df: DataFrame) -> dict:
     raise NotImplementedError("Implement evaluate following the docstring.")
 
 
-def extract_feature_importance(model: PipelineModel, feature_cols: list[str]) -> list[tuple[str, float]]:
+def extract_feature_importance(
+    model: PipelineModel, feature_cols: list[str]
+) -> list[tuple[str, float]]:
     """
     Extract and rank feature importances from the GBT model stage.
 
@@ -60,10 +62,14 @@ def extract_feature_importance(model: PipelineModel, feature_cols: list[str]) ->
     2. Zip importances with feature_cols.
     3. Return sorted list of (feature_name, importance) tuples descending by importance.
     """
-    raise NotImplementedError("Implement extract_feature_importance following the docstring.")
+    raise NotImplementedError(
+        "Implement extract_feature_importance following the docstring."
+    )
 
 
-def write_metrics(metrics: dict, feature_importance: list[tuple[str, float]], output_path: str) -> None:
+def write_metrics(
+    metrics: dict, feature_importance: list[tuple[str, float]], output_path: str
+) -> None:
     """
     Write evaluation metrics and feature importances to a JSON file.
 

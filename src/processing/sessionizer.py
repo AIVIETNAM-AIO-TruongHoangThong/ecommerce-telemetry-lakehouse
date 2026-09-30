@@ -38,7 +38,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def calculate_session_boundaries(df: DataFrame, timeout_seconds: int = 1800) -> DataFrame:
+def calculate_session_boundaries(
+    df: DataFrame, timeout_seconds: int = 1800
+) -> DataFrame:
     """
     Compute session boundaries using distributed Spark Window functions.
 
@@ -51,7 +53,9 @@ def calculate_session_boundaries(df: DataFrame, timeout_seconds: int = 1800) -> 
     6. computed_session_id = F.concat(F.col('user_id'), F.lit('_'), F.col('session_index')).
     """
     # TODO: Implement window sessionization logic here
-    raise NotImplementedError("Implement calculate_session_boundaries following the docstring.")
+    raise NotImplementedError(
+        "Implement calculate_session_boundaries following the docstring."
+    )
 
 
 def evaluate_session_match_rate(df: DataFrame) -> float:

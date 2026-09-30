@@ -1,6 +1,6 @@
 .PHONY: build up down \
-        tf-init tf-plan tf-apply tf-destroy \
-        ingest sessionize load-snowflake \
+        download-all download-remainders download-month \
+        ingest ingest-all sessionize \
         dbt-deps dbt-run dbt-test dbt-docs \
         train-ml eval-oot \
         test lint
@@ -15,86 +15,61 @@ up:
 down:
 	docker compose down
 
-# --- Infrastructure: Terraform (Snowflake IaC) ---------------------
-tf-init:
-	cd terraform && terraform init
+# --- Fast Multi-Threaded Dataset Downloader ----------------------------------
+# Usage: make download-remainders
+#        make download-month MONTH=2019-Dec
+MONTH ?= 2019-Dec
 
-tf-plan:
-	cd terraform && terraform plan
+download-all:
+	uv run python scripts/fast_download.py --all --output-dir ./data/scratch
 
-tf-apply:
-	cd terraform && terraform apply -auto-approve
+download-remainders:
+	uv run python scripts/fast_download.py --all-remainders --output-dir ./data/scratch
 
-tf-destroy:
-	cd terraform && terraform destroy -auto-approve
+download-month:
+	uv run python scripts/fast_download.py --url https://data.rees46.com/datasets/marketplace/$(MONTH).csv.gz --output-dir ./data/scratch
 
-# --- Ingestion: Batch Ingestion (parameterised by MONTH=YYYY-Mon) ---
-# Usage: make ingest MONTH=2019-Oct
-MONTH ?= 2019-Oct
-
+# --- Ingestion: Batch Ingestion to MinIO Iceberg (parameterised by MONTH) -----
+# Usage: make ingest MONTH=2019-Dec
 ingest:
-	docker compose exec job-runner spark-submit \
-		--master spark://spark-master:7077 \
-		src/ingestion/ingest_monthly_batch.py \
-		--month $(MONTH) \
-		--bronze-dir data/bronze \
-		--dlq-dir data/dlq
+	uv run python -m src.ingestion.ingest_batch \
+		--source data/scratch/$(MONTH).csv.gz \
+		--table-name lakehouse.bronze_events
 
-# Ingest all 7 months sequentially
+# Ingest all 7 months sequentially from local scratch
 ingest-all:
 	for m in 2019-Oct 2019-Nov 2019-Dec 2020-Jan 2020-Feb 2020-Mar 2020-Apr; do \
 		$(MAKE) ingest MONTH=$$m; \
 	done
 
-# --- Processing: Sessionization --------------------------------------
+# --- Processing: Silver Sessionization --------------------------------------
 sessionize:
-	docker compose exec job-runner spark-submit \
-		--master spark://spark-master:7077 \
-		src/processing/sessionizer.py \
-		--input-path data/bronze/$(MONTH)/ \
-		--output-path data/silver/$(MONTH)/
+	uv run python -m src.processing.transform_silver
 
-# --- Warehouse: Snowflake Load --------------------------------------
-load-snowflake:
-	docker compose exec job-runner spark-submit \
-		--master spark://spark-master:7077 \
-		src/warehouse/snowflake_loader.py \
-		--source-path data/silver/$(MONTH)/ \
-		--target-table SILVER.FACT_EVENTS
-
-# --- Transformation: dbt --------------------------------------------
+# --- Transformation: dbt -----------------------------------------------------
 dbt-deps:
-	docker compose exec job-runner dbt deps --project-dir dbt_ecommerce
+	dbt deps --project-dir dbt_ecommerce
 
 dbt-run:
-	docker compose exec job-runner dbt run --project-dir dbt_ecommerce
+	dbt run --project-dir dbt_ecommerce
 
 dbt-test:
-	docker compose exec job-runner dbt test --project-dir dbt_ecommerce
+	dbt test --project-dir dbt_ecommerce
 
 dbt-docs:
-	docker compose exec job-runner dbt docs generate --project-dir dbt_ecommerce && \
-	docker compose exec job-runner dbt docs serve --project-dir dbt_ecommerce --port 8081
+	dbt docs generate --project-dir dbt_ecommerce && \
+	dbt docs serve --project-dir dbt_ecommerce --port 8081
 
 # --- ML Extension: Training & Evaluation ------------------------------------
 train-ml:
-	docker compose exec job-runner spark-submit \
-		--master spark://spark-master:7077 \
-		src/ml/train.py \
-		--input-path data/artifacts/gold_features/ \
-		--model-output data/artifacts/gbt_conversion/
+	uv run python -m src.ml.train
 
 eval-oot:
-	docker compose exec job-runner spark-submit \
-		--master spark://spark-master:7077 \
-		src/ml/evaluate_oot.py \
-		--model-path data/artifacts/gbt_conversion/ \
-		--test-input data/artifacts/gold_features_oot/ \
-		--metrics-output data/artifacts/oot_evaluation.json
+	uv run python -m src.ml.evaluate_oot
 
 # --- Testing -----------------------------------------------------------------
 test:
-	docker compose exec job-runner pytest tests/ -v --cov=src
+	pytest tests/ -v --cov=src
 
-# --- Full Pipeline ------------------------------------------------------------
-pipeline: ingest-all sessionize load-snowflake dbt-run train-ml eval-oot
+# --- Full End-to-End Pipeline ------------------------------------------------
+pipeline: download-all ingest-all sessionize dbt-run train-ml eval-oot

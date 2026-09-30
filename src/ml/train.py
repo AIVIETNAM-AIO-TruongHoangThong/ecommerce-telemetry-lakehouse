@@ -54,7 +54,9 @@ def build_pipeline() -> Pipeline:
     raise NotImplementedError("Implement build_pipeline following the docstring.")
 
 
-def split_data(df: DataFrame, val_ratio: float = 0.2, seed: int = 42) -> tuple[DataFrame, DataFrame]:
+def split_data(
+    df: DataFrame, val_ratio: float = 0.2, seed: int = 42
+) -> tuple[DataFrame, DataFrame]:
     """
     Perform an 80/20 random train/validation split.
 
